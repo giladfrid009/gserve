@@ -4,6 +4,8 @@ import sys
 import argparse
 import json
 import gc
+import asyncio
+import logging
 import uvicorn
 from typing import List, Dict, Optional, Any
 
@@ -16,7 +18,12 @@ import torch
 from vllm import LLM, SamplingParams
 from vllm.lora.request import LoRARequest
 from vllm.sequence import SampleLogprobs
-from vllm.distributed.parallel_state import destroy_model_parallel, destroy_distributed_environment
+from vllm.distributed.parallel_state import (
+    destroy_model_parallel,
+    destroy_distributed_environment,
+)
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="vLLM Batched-Chat & Generate Server")
 
@@ -103,7 +110,13 @@ async def chat_endpoint(request: Request) -> Response:
 
 
 @app.post("/shutdown")
-async def shutdown_endpoint(request: Request) -> None:
+async def shutdown_endpoint() -> Response:
+    """Shut down the server after cleaning up resources.
+
+    The response is sent before the process receives ``SIGINT`` so the
+    client gets confirmation that the shutdown request was processed.
+    """
+
     global _llm_instance
 
     if _llm_instance is not None:
@@ -118,10 +131,12 @@ async def shutdown_endpoint(request: Request) -> None:
             torch.cuda.empty_cache()
             ray.shutdown()
 
-        except Exception as e:
-            print(f"Error during shutdown: {e!r}", file=sys.stderr)
+        except Exception:  # pragma: no cover - best effort cleanup
+            logger.exception("Error while cleaning up during shutdown")
 
-    os.kill(os.getpid(), signal.SIGTERM)
+    loop = asyncio.get_running_loop()
+    loop.call_later(0.1, os.kill, os.getpid(), signal.SIGINT)
+    return Response(content="shutting down", media_type="text/plain")
 
 
 @app.post("/generate")

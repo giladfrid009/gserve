@@ -215,8 +215,16 @@ class VLLMServer:
 
         logger.info("[VLLMServer] Shutting down subprocess...")
         try:
-            requests.post(f"http://{self.host}:{self.port}/shutdown", timeout=5)
-        except Exception as e:
+            resp = requests.post(
+                f"http://{self.host}:{self.port}/shutdown",
+                timeout=5,
+            )
+            if resp.status_code != 200:
+                logger.warning(
+                    "[VLLMServer] Shutdown request returned HTTP %s",
+                    resp.status_code,
+                )
+        except requests.RequestException as e:
             logger.warning("[VLLMServer] Shutdown request failed: %s", e)
 
         try:
