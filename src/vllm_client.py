@@ -1,5 +1,5 @@
-import requests
-from requests.exceptions import RequestException
+import asyncio
+import httpx
 from vllm import SamplingParams
 from typing import List, Dict, Optional
 import msgspec
@@ -24,25 +24,27 @@ class VLLMClient:
         self.base_url = f"http://{host}:{port}"
         self.timeout = timeout
 
-        # Basic health check
+        # Basic health check using httpx
         health_url = f"{self.base_url}/health"
         try:
-            resp = requests.get(health_url, timeout=self.timeout)
-            if resp.status_code != 200:
-                raise RuntimeError(f"Health check returned HTTP {resp.status_code}")
+            asyncio.run(self._health_check(health_url))
         except Exception as e:
             raise RuntimeError(f"Cannot reach vLLM server at {health_url}: {e!r}")
 
-    def chat(
+    async def _health_check(self, health_url: str) -> None:
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            resp = await client.get(health_url)
+            if resp.status_code != 200:
+                raise RuntimeError(f"Health check returned HTTP {resp.status_code}")
+
+    async def chat_async(
         self,
         conversations: List[List[Dict[str, str]]],
         sampling_params: SamplingParams,
         return_extra: bool = False,
     ) -> List[List[str]] | List[List[ResponseOutput]]:
         """
-        Send a batch of M conversations to POST /chat, return a list of M generated strings.
-
-        Raises RuntimeError on HTTP errors, non-200 responses, or malformed JSON.
+        Asynchronous version of :meth:`chat`.
         """
         url = f"{self.base_url}/chat"
 
@@ -52,15 +54,13 @@ class VLLMClient:
         )
 
         try:
-            # ``requests.post(json=...)`` would re-encode using ``json.dumps``.
-            # Here we pre-encode with msgspec for speed and pass the raw bytes.
-            response = requests.post(
-                url,
-                data=msgspec.json.encode(payload),
-                headers={"Content-Type": "application/json"},
-                timeout=self.timeout,
-            )
-        except RequestException as e:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                response = await client.post(
+                    url,
+                    content=msgspec.json.encode(payload),
+                    headers={"Content-Type": "application/json"},
+                )
+        except httpx.HTTPError as e:
             raise RuntimeError(f"Failed to POST /chat → {e!r}")
 
         if response.status_code != 200:
@@ -75,17 +75,22 @@ class VLLMClient:
             return output
         return [[o.text for o in outs] for outs in output]
 
-    def generate(
+    def chat(
+        self,
+        conversations: List[List[Dict[str, str]]],
+        sampling_params: SamplingParams,
+        return_extra: bool = False,
+    ) -> List[List[str]] | List[List[ResponseOutput]]:
+        """Synchronous wrapper over :meth:`chat_async`."""
+        return asyncio.run(self.chat_async(conversations, sampling_params, return_extra))
+
+    async def generate_async(
         self,
         prompts: List[str],
         sampling_params: SamplingParams,
         return_extra: bool = False,
     ) -> List[List[str]] | List[List[ResponseOutput]]:
-        """
-        Send a batch of N prompts to POST /generate, return a list of N generated strings.
-
-        Raises RuntimeError on HTTP errors, non-200 responses, or malformed JSON.
-        """
+        """Asynchronous version of :meth:`generate`."""
         url = f"{self.base_url}/generate"
 
         payload = GenerateRequest(
@@ -94,15 +99,13 @@ class VLLMClient:
         )
 
         try:
-            # Pre-encode with msgspec rather than letting ``requests`` call
-            # ``json.dumps`` internally.
-            response = requests.post(
-                url,
-                data=msgspec.json.encode(payload),
-                headers={"Content-Type": "application/json"},
-                timeout=self.timeout,
-            )
-        except RequestException as e:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                response = await client.post(
+                    url,
+                    content=msgspec.json.encode(payload),
+                    headers={"Content-Type": "application/json"},
+                )
+        except httpx.HTTPError as e:
             raise RuntimeError(f"Failed to POST /generate → {e!r}")
 
         if response.status_code != 200:
@@ -116,3 +119,12 @@ class VLLMClient:
         if return_extra:
             return output
         return [[o.text for o in outs] for outs in output]
+
+    def generate(
+        self,
+        prompts: List[str],
+        sampling_params: SamplingParams,
+        return_extra: bool = False,
+    ) -> List[List[str]] | List[List[ResponseOutput]]:
+        """Synchronous wrapper over :meth:`generate_async`."""
+        return asyncio.run(self.generate_async(prompts, sampling_params, return_extra))
