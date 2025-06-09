@@ -462,10 +462,18 @@ class VLLMService:
         return merged
 
     def shutdown(self) -> None:
-        """Shut down all servers concurrently. Idempotent."""
+        """Shut down all servers and close clients. Idempotent."""
         servers = self.servers[:]
         self.servers.clear()
+
+        clients = self.clients[:]
         self.clients.clear()
+
+        for client in clients:
+            try:
+                client.close()
+            except Exception as e:
+                logger.warning("[VLLMService] Error closing client: %s", e)
 
         if not servers:
             return

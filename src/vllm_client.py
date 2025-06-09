@@ -23,11 +23,12 @@ class VLLMClient:
         """
         self.base_url = f"http://{host}:{port}"
         self.timeout = timeout
+        self.session = requests.Session()
 
         # Basic health check
         health_url = f"{self.base_url}/health"
         try:
-            resp = requests.get(health_url, timeout=self.timeout)
+            resp = self.session.get(health_url, timeout=self.timeout)
             if resp.status_code != 200:
                 raise RuntimeError(f"Health check returned HTTP {resp.status_code}")
         except Exception as e:
@@ -54,7 +55,7 @@ class VLLMClient:
         try:
             # ``requests.post(json=...)`` would re-encode using ``json.dumps``.
             # Here we pre-encode with msgspec for speed and pass the raw bytes.
-            response = requests.post(
+            response = self.session.post(
                 url,
                 data=msgspec.json.encode(payload),
                 headers={"Content-Type": "application/json"},
@@ -96,7 +97,7 @@ class VLLMClient:
         try:
             # Pre-encode with msgspec rather than letting ``requests`` call
             # ``json.dumps`` internally.
-            response = requests.post(
+            response = self.session.post(
                 url,
                 data=msgspec.json.encode(payload),
                 headers={"Content-Type": "application/json"},
@@ -116,3 +117,15 @@ class VLLMClient:
         if return_extra:
             return output
         return [[o.text for o in outs] for outs in output]
+
+    def close(self) -> None:
+        """Close the underlying HTTP session."""
+        self.session.close()
+
+    def __enter__(self):
+        """Support context manager usage."""
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        """Support context manager usage."""
+        self.close()
