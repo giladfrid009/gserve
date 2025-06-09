@@ -286,7 +286,6 @@ class VLLMServer:
         self.shutdown()
 
 
-
 class VLLMService:
     """
     Convenience wrapper bundling :class:`VLLMServer` and :class:`VLLMClient`.
@@ -345,10 +344,11 @@ class VLLMService:
         return batches
 
     def start(self) -> None:
-        """Launch server processes and create clients."""
-        asyncio.run(self._start_async())
+        """Start the service by launching server and client processes."""
+        asyncio.run(self.start_async())
 
-    async def _start_async(self) -> None:
+    async def start_async(self) -> None:
+        """Asynchronously start the service by launching server and client processes."""
         if self.servers:
             raise RuntimeError("Service already started")
 
@@ -418,20 +418,20 @@ class VLLMService:
         return_extra: bool = False,
     ) -> List[List[str]] | List[List[ResponseOutput]]:
         """Perform batched chat across all servers."""
-        if sampling_params is None:
-            sampling_params = SamplingParams()
-        return asyncio.run(
-            self._chat_async(conversations, sampling_params, return_extra)
-        )
+        return asyncio.run(self.chat_async(conversations, sampling_params, return_extra))
 
-    async def _chat_async(
+    async def chat_async(
         self,
         conversations: List[List[Dict[str, str]]],
-        sampling_params: SamplingParams,
-        return_extra: bool,
+        sampling_params: SamplingParams | None = None,
+        return_extra: bool = False,
     ) -> List[List[str]] | List[List[ResponseOutput]]:
+        """Perform batched chat across all servers asynchronously."""
         if not self.clients:
             raise RuntimeError("Service not started. Call .start() first.")
+
+        if sampling_params is None:
+            sampling_params = SamplingParams()
 
         if len(conversations) == 0:
             return []
@@ -439,10 +439,7 @@ class VLLMService:
         batches = self._split_batches(conversations)
 
         results = await asyncio.gather(
-            *(
-                client.chat_async(batch, sampling_params, return_extra)
-                for client, batch in zip(self.clients, batches)
-            )
+            *(client.chat_async(batch, sampling_params, return_extra) for client, batch in zip(self.clients, batches))
         )
 
         merged: List[List] = []
@@ -457,20 +454,20 @@ class VLLMService:
         return_extra: bool = False,
     ) -> List[List[str]] | List[List[ResponseOutput]]:
         """Perform batched generation across all servers."""
-        if sampling_params is None:
-            sampling_params = SamplingParams()
-        return asyncio.run(
-            self._generate_async(prompts, sampling_params, return_extra)
-        )
+        return asyncio.run(self.generate_async(prompts, sampling_params, return_extra))
 
-    async def _generate_async(
+    async def generate_async(
         self,
         prompts: List[str],
-        sampling_params: SamplingParams,
-        return_extra: bool,
+        sampling_params: SamplingParams | None = None,
+        return_extra: bool = False,
     ) -> List[List[str]] | List[List[ResponseOutput]]:
+        """Perform batched generation across all servers asynchronously."""
         if not self.clients:
             raise RuntimeError("Service not started. Call .start() first.")
+
+        if sampling_params is None:
+            sampling_params = SamplingParams()
 
         if len(prompts) == 0:
             return []
@@ -478,10 +475,7 @@ class VLLMService:
         batches = self._split_batches(prompts)
 
         results = await asyncio.gather(
-            *(
-                client.generate_async(batch, sampling_params, return_extra)
-                for client, batch in zip(self.clients, batches)
-            )
+            *(client.generate_async(batch, sampling_params, return_extra) for client, batch in zip(self.clients, batches))
         )
 
         merged: List[List] = []
@@ -491,9 +485,10 @@ class VLLMService:
 
     def shutdown(self) -> None:
         """Terminate all server processes and close clients."""
-        asyncio.run(self._shutdown_async())
+        asyncio.run(self.shutdown_async())
 
-    async def _shutdown_async(self) -> None:
+    async def shutdown_async(self) -> None:
+        """Asynchronously terminate all server processes and close clients."""
         servers = self.servers[:]
         self.servers.clear()
 
@@ -537,3 +532,9 @@ class VLLMService:
     def __exit__(self, exc_type, exc, tb):
         self.shutdown()
 
+    async def __aenter__(self):
+        await self.start_async()
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        await self.shutdown_async()
