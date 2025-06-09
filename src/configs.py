@@ -23,7 +23,6 @@ class LLMConfig:
     download_dir: Optional[str] = None
     lora_path: Optional[str] = None
     llm_kwargs: Dict[str, Any] = field(default_factory=dict)
-   
 
 
 @dataclass
@@ -38,4 +37,3 @@ class ServeConfig:
     client_timeout: Optional[float] = 30.0
     server_script_path: Optional[str] = None
     verbose: bool = False
-

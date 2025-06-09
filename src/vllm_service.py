@@ -215,18 +215,14 @@ class VLLMServer:
 
         logger.info("[VLLMServer] Shutting down subprocess...")
         try:
-            requests.post(
-                f"http://{self.host}:{self.port}/shutdown", timeout=5
-            )
+            requests.post(f"http://{self.host}:{self.port}/shutdown", timeout=5)
         except Exception as e:
             logger.warning("[VLLMServer] Shutdown request failed: %s", e)
 
         try:
             self._process.wait(timeout=10)
         except subprocess.TimeoutExpired:
-            logger.warning(
-                "[VLLMServer] Graceful shutdown timed out; forcing kill."
-            )
+            logger.warning("[VLLMServer] Graceful shutdown timed out; forcing kill.")
             self._terminate_process()
 
         self._process = None
@@ -414,10 +410,7 @@ class VLLMService:
 
         results: List[List] = []
         with ThreadPoolExecutor(max_workers=num_servers) as ex:
-            futures = [
-                ex.submit(client.chat, batch, sampling_params, return_extra)
-                for client, batch in zip(self.clients, batches)
-            ]
+            futures = [ex.submit(client.chat, batch, sampling_params, return_extra) for client, batch in zip(self.clients, batches)]
             for fut in futures:
                 results.append(fut.result())
 
@@ -459,10 +452,7 @@ class VLLMService:
 
         results: List[List] = []
         with ThreadPoolExecutor(max_workers=num_servers) as ex:
-            futures = [
-                ex.submit(client.generate, batch, sampling_params, return_extra)
-                for client, batch in zip(self.clients, batches)
-            ]
+            futures = [ex.submit(client.generate, batch, sampling_params, return_extra) for client, batch in zip(self.clients, batches)]
             for fut in futures:
                 results.append(fut.result())
 

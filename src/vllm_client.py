@@ -64,9 +64,7 @@ class VLLMClient:
             raise RuntimeError(f"Failed to POST /chat → {e!r}")
 
         if response.status_code != 200:
-            raise RuntimeError(
-                f"/chat returned HTTP {response.status_code}: {response.text}"
-            )
+            raise RuntimeError(f"/chat returned HTTP {response.status_code}: {response.text}")
 
         try:
             output = msgspec.json.decode(response.content, type=list[list[ResponseOutput]])
@@ -108,9 +106,7 @@ class VLLMClient:
             raise RuntimeError(f"Failed to POST /generate → {e!r}")
 
         if response.status_code != 200:
-            raise RuntimeError(
-                f"/generate returned HTTP {response.status_code}: {response.text}"
-            )
+            raise RuntimeError(f"/generate returned HTTP {response.status_code}: {response.text}")
 
         try:
             output = msgspec.json.decode(response.content, type=list[list[ResponseOutput]])

@@ -1,17 +1,22 @@
 import os
+import signal
 import sys
 import argparse
 import json
 import gc
-from uvicorn import Config, Server
+import uvicorn
 from typing import List, Dict, Optional, Any
 
 from fastapi import FastAPI, HTTPException, Request, Response
 import msgspec
 
+import ray
+import torch
+
 from vllm import LLM, SamplingParams
 from vllm.lora.request import LoRARequest
 from vllm.sequence import SampleLogprobs
+from vllm.distributed.parallel_state import destroy_model_parallel, destroy_distributed_environment
 
 app = FastAPI(title="vLLM Batched-Chat & Generate Server")
 
@@ -20,10 +25,6 @@ _llm_instance: Optional[LLM] = None
 
 # Optional LoRA request applied to all generation/chat calls
 _lora_request: Optional[LoRARequest] = None
-
-# ``uvicorn.Server`` instance created in ``server_main``. Used for graceful
-# shutdown from the ``/shutdown`` endpoint.
-_server: Optional[Server] = None
 
 
 class ChatRequest(msgspec.Struct, omit_defaults=True, forbid_unknown_fields=True):
@@ -102,23 +103,25 @@ async def chat_endpoint(request: Request) -> Response:
 
 
 @app.post("/shutdown")
-async def shutdown_endpoint() -> Dict[str, str]:
-    """Release GPU resources and request server shutdown."""
-    global _llm_instance, _server
+async def shutdown_endpoint(request: Request) -> None:
+    global _llm_instance
+
     if _llm_instance is not None:
-        del _llm_instance
-        _llm_instance = None
-    gc.collect()
-    try:
-        import torch
-        torch.cuda.empty_cache()
-    except Exception:
-        pass
+        try:
+            destroy_model_parallel()
+            destroy_distributed_environment()
 
-    if _server is not None:
-        _server.should_exit = True
+            del _llm_instance
+            _llm_instance = None
 
-    return {"status": "shutting_down"}
+            gc.collect()
+            torch.cuda.empty_cache()
+            ray.shutdown()
+
+        except Exception as e:
+            print(f"Error during shutdown: {e!r}", file=sys.stderr)
+
+    os.kill(os.getpid(), signal.SIGTERM)
 
 
 @app.post("/generate")
@@ -191,11 +194,7 @@ def server_main(
         **extra,
     )
 
-    config = Config(app=app, host=host, port=port, log_level="warning")
-    server = Server(config)
-    global _server
-    _server = server
-    server.run()
+    uvicorn.run(app, host=host, port=port, log_level="warning")
 
 
 if __name__ == "__main__":
