@@ -7,7 +7,6 @@ import atexit
 import json
 import asyncio
 from typing import Dict, List, Optional, TypeVar, Sequence
-from concurrent.futures import ThreadPoolExecutor
 
 import requests
 from vllm import SamplingParams
@@ -198,6 +197,10 @@ class VLLMServer:
                 raise RuntimeError(f"[VLLMServer] Timeout ({self.startup_timeout}s) waiting for health check.")
             time.sleep(0.1)
 
+    async def start_async(self) -> None:
+        """Asynchronously invoke :meth:`start` using a worker thread."""
+        await asyncio.to_thread(self.start)
+
     def is_running(self) -> bool:
         """
         Return True if the subprocess exists and is still alive.
@@ -230,6 +233,10 @@ class VLLMServer:
             self._terminate_process()
 
         self._process = None
+
+    async def shutdown_async(self) -> None:
+        """Asynchronously invoke :meth:`shutdown` using a worker thread."""
+        await asyncio.to_thread(self.shutdown)
 
     def _terminate_process(self) -> None:
         """
@@ -279,12 +286,13 @@ class VLLMServer:
         self.shutdown()
 
 
+
 class VLLMService:
     """
-    Convenience wrapper bundling VLLMServer + VLLMClient. You only need to interact
-    with this one class:
+    Convenience wrapper bundling :class:`VLLMServer` and :class:`VLLMClient`.
+    Typical usage::
 
-        service = VLLMBatchedService(
+        service = VLLMService(
             model_name="meta-llama/Llama-3.2-1b-Instruct",
             gpu_ids=[0,1],
             host="127.0.0.1",
@@ -328,7 +336,7 @@ class VLLMService:
         base = total // num_servers
         extras = total % num_servers
 
-        batches: List[List[VLLMService.T]] = []
+        batches: List[List[T]] = []
         start = 0
         for i in range(num_servers):
             size = base + (1 if i < extras else 0)
@@ -337,7 +345,10 @@ class VLLMService:
         return batches
 
     def start(self) -> None:
-        """Start all server subprocesses concurrently and create clients."""
+        """Launch server processes and create clients."""
+        asyncio.run(self._start_async())
+
+    async def _start_async(self) -> None:
         if self.servers:
             raise RuntimeError("Service already started")
 
@@ -357,44 +368,44 @@ class VLLMService:
             if port_counter is not None:
                 port_counter += 1
 
+        results = await asyncio.gather(
+            *(srv.start_async() for srv in servers),
+            return_exceptions=True,
+        )
+
         started: List[VLLMServer] = []
-        try:
-            with ThreadPoolExecutor(max_workers=len(servers)) as ex:
-                futures = {ex.submit(s.start): s for s in servers}
-                for fut, srv in futures.items():
-                    try:
-                        fut.result()
-                        started.append(srv)
-                    except Exception as e:
-                        logger.error(
-                            "[VLLMService] Failed to start server on %s:%s: %s",
-                            srv.host,
-                            srv.port,
-                            e,
-                        )
-                        out, err = srv.fetch_logs()
-                        if out:
-                            logger.error("[VLLMServer STDOUT]\n%s", out)
-                        if err:
-                            logger.error("[VLLMServer STDERR]\n%s", err)
-                        raise
-
-            for srv in started:
-                client = VLLMClient(
-                    host=srv.host,
-                    port=srv.port,
-                    timeout=self._serve_config.client_timeout,
+        for srv, res in zip(servers, results):
+            if isinstance(res, Exception):
+                logger.error(
+                    "[VLLMService] Failed to start server on %s:%s: %s",
+                    srv.host,
+                    srv.port,
+                    res,
                 )
-                self.clients.append(client)
+                out, err = srv.fetch_logs()
+                if out:
+                    logger.error("[VLLMServer STDOUT]\n%s", out)
+                if err:
+                    logger.error("[VLLMServer STDERR]\n%s", err)
+            else:
+                started.append(srv)
 
-            self.servers = started
-        except Exception:
-            for srv in started:
-                try:
-                    srv.shutdown()
-                except Exception:
-                    pass
-            raise
+        if len(started) != len(servers):
+            await asyncio.gather(
+                *(srv.shutdown_async() for srv in started),
+                return_exceptions=True,
+            )
+            raise RuntimeError("Failed to start all servers")
+
+        for srv in started:
+            client = VLLMClient(
+                host=srv.host,
+                port=srv.port,
+                timeout=self._serve_config.client_timeout,
+            )
+            self.clients.append(client)
+
+        self.servers = started
 
     def is_running(self) -> bool:
         """Return True if at least one server subprocess is still alive."""
@@ -406,24 +417,33 @@ class VLLMService:
         sampling_params: SamplingParams | None = None,
         return_extra: bool = False,
     ) -> List[List[str]] | List[List[ResponseOutput]]:
-        """
-        Batched chat.
-        Returns a list of lists, each sub-list corresponds to number of outputs (n).
-        """
-        if not self.clients:
-            raise RuntimeError("Service not started. Call .start() first.")
+        """Perform batched chat across all servers."""
         if sampling_params is None:
             sampling_params = SamplingParams()
+        return asyncio.run(
+            self._chat_async(conversations, sampling_params, return_extra)
+        )
+
+    async def _chat_async(
+        self,
+        conversations: List[List[Dict[str, str]]],
+        sampling_params: SamplingParams,
+        return_extra: bool,
+    ) -> List[List[str]] | List[List[ResponseOutput]]:
+        if not self.clients:
+            raise RuntimeError("Service not started. Call .start() first.")
 
         if len(conversations) == 0:
             return []
 
         batches = self._split_batches(conversations)
-        results: List[List] = []
-        with ThreadPoolExecutor(max_workers=len(self.clients)) as ex:
-            futures = [ex.submit(client.chat, batch, sampling_params, return_extra) for client, batch in zip(self.clients, batches)]
-            for fut in futures:
-                results.append(fut.result())
+
+        results = await asyncio.gather(
+            *(
+                client.chat_async(batch, sampling_params, return_extra)
+                for client, batch in zip(self.clients, batches)
+            )
+        )
 
         merged: List[List] = []
         for res in results:
@@ -436,25 +456,33 @@ class VLLMService:
         sampling_params: SamplingParams | None = None,
         return_extra: bool = False,
     ) -> List[List[str]] | List[List[ResponseOutput]]:
-        """
-        Batched generate.
-        Returns a list of lists, each sub-list corresponds to number of outputs (n).
-        Raises if not started.
-        """
-        if not self.clients:
-            raise RuntimeError("Service not started. Call .start() first.")
+        """Perform batched generation across all servers."""
         if sampling_params is None:
             sampling_params = SamplingParams()
+        return asyncio.run(
+            self._generate_async(prompts, sampling_params, return_extra)
+        )
+
+    async def _generate_async(
+        self,
+        prompts: List[str],
+        sampling_params: SamplingParams,
+        return_extra: bool,
+    ) -> List[List[str]] | List[List[ResponseOutput]]:
+        if not self.clients:
+            raise RuntimeError("Service not started. Call .start() first.")
 
         if len(prompts) == 0:
             return []
 
         batches = self._split_batches(prompts)
-        results: List[List] = []
-        with ThreadPoolExecutor(max_workers=len(self.clients)) as ex:
-            futures = [ex.submit(client.generate, batch, sampling_params, return_extra) for client, batch in zip(self.clients, batches)]
-            for fut in futures:
-                results.append(fut.result())
+
+        results = await asyncio.gather(
+            *(
+                client.generate_async(batch, sampling_params, return_extra)
+                for client, batch in zip(self.clients, batches)
+            )
+        )
 
         merged: List[List] = []
         for res in results:
@@ -462,29 +490,39 @@ class VLLMService:
         return merged
 
     def shutdown(self) -> None:
-        """Shut down all servers and close clients. Idempotent."""
+        """Terminate all server processes and close clients."""
+        asyncio.run(self._shutdown_async())
+
+    async def _shutdown_async(self) -> None:
         servers = self.servers[:]
         self.servers.clear()
 
         clients = self.clients[:]
         self.clients.clear()
 
-        for client in clients:
-            try:
-                client.close()
-            except Exception as e:
-                logger.warning("[VLLMService] Error closing client: %s", e)
+        client_results = await asyncio.gather(
+            *(client.aclose() for client in clients),
+            return_exceptions=True,
+        )
+        for client, res in zip(clients, client_results):
+            if isinstance(res, Exception):
+                logger.warning("[VLLMService] Error closing client: %s", res)
 
         if not servers:
             return
 
-        with ThreadPoolExecutor(max_workers=len(servers)) as ex:
-            futures = [ex.submit(s.shutdown) for s in servers]
-            for fut in futures:
-                try:
-                    fut.result()
-                except Exception as e:
-                    logger.error("[VLLMService] Error shutting down server: %s", e)
+        srv_results = await asyncio.gather(
+            *(srv.shutdown_async() for srv in servers),
+            return_exceptions=True,
+        )
+        for srv, res in zip(servers, srv_results):
+            if isinstance(res, Exception):
+                logger.error(
+                    "[VLLMService] Error shutting down server %s:%s: %s",
+                    srv.host,
+                    srv.port,
+                    res,
+                )
 
     def __del__(self):
         try:
@@ -498,3 +536,4 @@ class VLLMService:
 
     def __exit__(self, exc_type, exc, tb):
         self.shutdown()
+

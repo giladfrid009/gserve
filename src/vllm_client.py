@@ -1,14 +1,12 @@
-import requests
-from requests.exceptions import RequestException
-from vllm import SamplingParams
+import asyncio
 from typing import List, Dict, Optional
+
+import httpx
+from httpx import HTTPError
+from vllm import SamplingParams
 import msgspec
 
-from src.vllm_server import (
-    ResponseOutput,
-    ChatRequest,
-    GenerateRequest,
-)
+from src.vllm_server import ResponseOutput, ChatRequest, GenerateRequest
 
 
 class VLLMClient:
@@ -23,28 +21,26 @@ class VLLMClient:
         """
         self.base_url = f"http://{host}:{port}"
         self.timeout = timeout
-        self.session = requests.Session()
+        self._client = httpx.AsyncClient(base_url=self.base_url, timeout=self.timeout)
 
-        # Basic health check
+        # Basic health check using a short-lived sync request so failures don't
+        # leak open connections on ``_client``.
         health_url = f"{self.base_url}/health"
         try:
-            resp = self.session.get(health_url, timeout=self.timeout)
+            resp = httpx.get(health_url, timeout=self.timeout)
             if resp.status_code != 200:
                 raise RuntimeError(f"Health check returned HTTP {resp.status_code}")
         except Exception as e:
+            asyncio.run(self._client.aclose())
             raise RuntimeError(f"Cannot reach vLLM server at {health_url}: {e!r}")
 
-    def chat(
+    async def chat_async(
         self,
         conversations: List[List[Dict[str, str]]],
         sampling_params: SamplingParams,
         return_extra: bool = False,
     ) -> List[List[str]] | List[List[ResponseOutput]]:
-        """
-        Send a batch of M conversations to POST /chat, return a list of M generated strings.
-
-        Raises RuntimeError on HTTP errors, non-200 responses, or malformed JSON.
-        """
+        """Call the ``/chat`` endpoint asynchronously."""
         url = f"{self.base_url}/chat"
 
         payload = ChatRequest(
@@ -53,15 +49,12 @@ class VLLMClient:
         )
 
         try:
-            # ``requests.post(json=...)`` would re-encode using ``json.dumps``.
-            # Here we pre-encode with msgspec for speed and pass the raw bytes.
-            response = self.session.post(
+            response = await self._client.post(
                 url,
-                data=msgspec.json.encode(payload),
+                content=msgspec.json.encode(payload),
                 headers={"Content-Type": "application/json"},
-                timeout=self.timeout,
             )
-        except RequestException as e:
+        except HTTPError as e:
             raise RuntimeError(f"Failed to POST /chat → {e!r}")
 
         if response.status_code != 200:
@@ -76,17 +69,13 @@ class VLLMClient:
             return output
         return [[o.text for o in outs] for outs in output]
 
-    def generate(
+    async def generate_async(
         self,
         prompts: List[str],
         sampling_params: SamplingParams,
         return_extra: bool = False,
     ) -> List[List[str]] | List[List[ResponseOutput]]:
-        """
-        Send a batch of N prompts to POST /generate, return a list of N generated strings.
-
-        Raises RuntimeError on HTTP errors, non-200 responses, or malformed JSON.
-        """
+        """Call the ``/generate`` endpoint asynchronously."""
         url = f"{self.base_url}/generate"
 
         payload = GenerateRequest(
@@ -95,15 +84,12 @@ class VLLMClient:
         )
 
         try:
-            # Pre-encode with msgspec rather than letting ``requests`` call
-            # ``json.dumps`` internally.
-            response = self.session.post(
+            response = await self._client.post(
                 url,
-                data=msgspec.json.encode(payload),
+                content=msgspec.json.encode(payload),
                 headers={"Content-Type": "application/json"},
-                timeout=self.timeout,
             )
-        except RequestException as e:
+        except HTTPError as e:
             raise RuntimeError(f"Failed to POST /generate → {e!r}")
 
         if response.status_code != 200:
@@ -118,9 +104,31 @@ class VLLMClient:
             return output
         return [[o.text for o in outs] for outs in output]
 
+    def chat(
+        self,
+        conversations: List[List[Dict[str, str]]],
+        sampling_params: SamplingParams,
+        return_extra: bool = False,
+    ) -> List[List[str]] | List[List[ResponseOutput]]:
+        """Synchronous wrapper over :meth:`chat_async`."""
+        return asyncio.run(self.chat_async(conversations, sampling_params, return_extra))
+
+    def generate(
+        self,
+        prompts: List[str],
+        sampling_params: SamplingParams,
+        return_extra: bool = False,
+    ) -> List[List[str]] | List[List[ResponseOutput]]:
+        """Synchronous wrapper over :meth:`generate_async`."""
+        return asyncio.run(self.generate_async(prompts, sampling_params, return_extra))
+
     def close(self) -> None:
-        """Close the underlying HTTP session."""
-        self.session.close()
+        """Synchronously close the underlying HTTP client."""
+        asyncio.run(self.aclose())
+
+    async def aclose(self) -> None:
+        """Close the underlying asynchronous HTTP client."""
+        await self._client.aclose()
 
     def __enter__(self):
         """Support context manager usage."""
@@ -129,3 +137,9 @@ class VLLMClient:
     def __exit__(self, exc_type, exc_value, traceback):
         """Support context manager usage."""
         self.close()
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc_value, traceback):
+        await self.aclose()
