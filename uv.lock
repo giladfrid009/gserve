@@ -780,7 +780,6 @@ version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
     { name = "fastapi" },
-    { name = "httpx" },
     { name = "huggingface-hub" },
     { name = "ipykernel" },
     { name = "ipywidgets" },
@@ -796,7 +795,6 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "fastapi", specifier = ">=0.115.12" },
-    { name = "httpx", specifier = ">=0.28.1" },
     { name = "huggingface-hub", specifier = ">=0.32.4" },
     { name = "ipykernel", specifier = ">=6.29.5" },
     { name = "ipywidgets", specifier = ">=8.1.7" },
