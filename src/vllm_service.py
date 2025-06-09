@@ -18,8 +18,9 @@ from src.configs import LLMConfig, ServeConfig
 
 import logging
 
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+T = TypeVar("T")
 
 
 class VLLMServer:
@@ -317,11 +318,12 @@ class VLLMService:
         self.servers: List[VLLMServer] = []
         self.clients: List[VLLMClient] = []
 
-    T = TypeVar("_T")
+    def _split_batches(self, items: Sequence[T]) -> List[List[T]]:
+        """Split a list of items into batches, one for each server."""
+        num_servers = len(self.servers)
+        if num_servers == 0:
+            raise RuntimeError("No servers available. Call .start() first.")
 
-    @staticmethod
-    def _split_batches(items: Sequence[T], num_servers: int) -> List[List[T]]:
-        """Split ``items`` into ``num_servers`` batches preserving order."""
         total = len(items)
         base = total // num_servers
         extras = total % num_servers
@@ -413,13 +415,12 @@ class VLLMService:
         if sampling_params is None:
             sampling_params = SamplingParams()
 
-        num_servers = len(self.clients)
         if len(conversations) == 0:
             return []
 
-        batches = self._split_batches(conversations, num_servers)
+        batches = self._split_batches(conversations)
         results: List[List] = []
-        with ThreadPoolExecutor(max_workers=num_servers) as ex:
+        with ThreadPoolExecutor(max_workers=len(self.clients)) as ex:
             futures = [ex.submit(client.chat, batch, sampling_params, return_extra) for client, batch in zip(self.clients, batches)]
             for fut in futures:
                 results.append(fut.result())
@@ -445,13 +446,12 @@ class VLLMService:
         if sampling_params is None:
             sampling_params = SamplingParams()
 
-        num_servers = len(self.clients)
         if len(prompts) == 0:
             return []
 
-        batches = self._split_batches(prompts, num_servers)
+        batches = self._split_batches(prompts)
         results: List[List] = []
-        with ThreadPoolExecutor(max_workers=num_servers) as ex:
+        with ThreadPoolExecutor(max_workers=len(self.clients)) as ex:
             futures = [ex.submit(client.generate, batch, sampling_params, return_extra) for client, batch in zip(self.clients, batches)]
             for fut in futures:
                 results.append(fut.result())
