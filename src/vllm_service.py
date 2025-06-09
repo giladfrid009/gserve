@@ -274,17 +274,6 @@ class VLLMServer:
         except Exception:
             pass
 
-    def __del__(self):
-        # Fallback in case shutdown wasn’t explicitly called
-        self._atexit_shutdown()
-
-    def __enter__(self):
-        self.start()
-        return self
-
-    def __exit__(self, exc_type, exc, tb):
-        self.shutdown()
-
 
 class VLLMService:
     """
@@ -344,7 +333,13 @@ class VLLMService:
         return batches
 
     def start(self) -> None:
-        """Start the service by launching server and client processes."""
+        """
+        Synchronous wrapper over :meth:`start_async` for starting the service.
+
+        #### Important Note:
+            Should not be called from within an event loop since it internally creates a new event loop via `asyncio.run()`.
+            Use the :meth:`start_async` method instead if you are already in an async context.
+        """
         asyncio.run(self.start_async())
 
     async def start_async(self) -> None:
@@ -417,7 +412,13 @@ class VLLMService:
         sampling_params: SamplingParams | None = None,
         return_extra: bool = False,
     ) -> List[List[str]] | List[List[ResponseOutput]]:
-        """Perform batched chat across all servers."""
+        """
+        Synchronous wrapper over :meth:`generate_async` for batched chat generation.
+
+        #### Important Note:
+            Should not be called from within an event loop since it internally creates a new event loop via `asyncio.run()`.
+            Use the `chat_async` method instead if you are already in an async context.
+        """
         return asyncio.run(self.chat_async(conversations, sampling_params, return_extra))
 
     async def chat_async(
@@ -453,7 +454,13 @@ class VLLMService:
         sampling_params: SamplingParams | None = None,
         return_extra: bool = False,
     ) -> List[List[str]] | List[List[ResponseOutput]]:
-        """Perform batched generation across all servers."""
+        """
+        Synchronous wrapper over :meth:`generate_async` for batched text generation.
+
+        #### Important Note:
+            Should not be called from within an event loop since it internally creates a new event loop via `asyncio.run()`.
+            Use the :meth:`generate_async` method instead if you are already in an async context.
+        """
         return asyncio.run(self.generate_async(prompts, sampling_params, return_extra))
 
     async def generate_async(
@@ -484,7 +491,13 @@ class VLLMService:
         return merged
 
     def shutdown(self) -> None:
-        """Terminate all server processes and close clients."""
+        """
+        Synchronous wrapper over :meth:`shutdown_async` for terminating all server processes and closing clients.
+
+        #### Important Note:
+            Should not be called from within an event loop since it internally creates a new event loop via `asyncio.run()`.
+            Use the :meth:`shutdown_async` method instead if you are already in an async context.
+        """
         asyncio.run(self.shutdown_async())
 
     async def shutdown_async(self) -> None:
@@ -518,23 +531,3 @@ class VLLMService:
                     srv.port,
                     res,
                 )
-
-    def __del__(self):
-        try:
-            self.shutdown()
-        except Exception:
-            pass
-
-    def __enter__(self):
-        self.start()
-        return self
-
-    def __exit__(self, exc_type, exc, tb):
-        self.shutdown()
-
-    async def __aenter__(self):
-        await self.start_async()
-        return self
-
-    async def __aexit__(self, exc_type, exc, tb):
-        await self.shutdown_async()

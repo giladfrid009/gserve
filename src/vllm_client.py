@@ -123,23 +123,9 @@ class VLLMClient:
         return asyncio.run(self.generate_async(prompts, sampling_params, return_extra))
 
     def close(self) -> None:
-        """Synchronously close the underlying HTTP client."""
+        """Synchronous wrapper over :meth:`aclose`."""
         asyncio.run(self.aclose())
 
     async def aclose(self) -> None:
         """Close the underlying asynchronous HTTP client."""
         await self._client.aclose()
-
-    def __enter__(self):
-        """Support context manager usage."""
-        return self
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        """Support context manager usage."""
-        self.close()
-
-    async def __aenter__(self):
-        return self
-
-    async def __aexit__(self, exc_type, exc_value, traceback):
-        await self.aclose()
