@@ -6,7 +6,7 @@ import subprocess
 import atexit
 import json
 import asyncio
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, TypeVar, Sequence
 from concurrent.futures import ThreadPoolExecutor
 
 import requests
@@ -317,6 +317,23 @@ class VLLMService:
         self.servers: List[VLLMServer] = []
         self.clients: List[VLLMClient] = []
 
+    T = TypeVar("_T")
+
+    @staticmethod
+    def _split_batches(items: Sequence[T], num_servers: int) -> List[List[T]]:
+        """Split ``items`` into ``num_servers`` batches preserving order."""
+        total = len(items)
+        base = total // num_servers
+        extras = total % num_servers
+
+        batches: List[List[VLLMService.T]] = []
+        start = 0
+        for i in range(num_servers):
+            size = base + (1 if i < extras else 0)
+            batches.append(list(items[start : start + size]))
+            start += size
+        return batches
+
     def start(self) -> None:
         """Start all server subprocesses concurrently and create clients."""
         if self.servers:
@@ -381,85 +398,31 @@ class VLLMService:
         """Return True if at least one server subprocess is still alive."""
         return any(server.is_running() for server in self.servers)
 
-    async def chat_async(
-        self,
-        conversations: List[List[Dict[str, str]]],
-        sampling_params: SamplingParams | None = None,
-        return_extra: bool = False,
-    ) -> List[List[str]] | List[List[ResponseOutput]]:
-        """Asynchronous batched chat."""
-        if not self.clients:
-            raise RuntimeError("Service not started. Call .start() first.")
-        if sampling_params is None:
-            sampling_params = SamplingParams()
-
-        num_servers = len(self.clients)
-        total = len(conversations)
-        if total == 0:
-            return []
-
-        base = total // num_servers
-        extras = total % num_servers
-
-        batches = []
-        start = 0
-        for i in range(num_servers):
-            size = base + (1 if i < extras else 0)
-            batches.append(conversations[start : start + size])
-            start += size
-
-        tasks = [
-            client.chat_async(batch, sampling_params, return_extra)
-            for client, batch in zip(self.clients, batches)
-        ]
-        results = await asyncio.gather(*tasks)
-
-        merged: List[List] = []
-        for res in results:
-            merged.extend(res)
-        return merged
-
     def chat(
         self,
         conversations: List[List[Dict[str, str]]],
         sampling_params: SamplingParams | None = None,
         return_extra: bool = False,
     ) -> List[List[str]] | List[List[ResponseOutput]]:
-        """Synchronous wrapper over :meth:`chat_async`."""
-        return asyncio.run(self.chat_async(conversations, sampling_params, return_extra))
-
-    async def generate_async(
-        self,
-        prompts: List[str],
-        sampling_params: SamplingParams | None = None,
-        return_extra: bool = False,
-    ) -> List[List[str]] | List[List[ResponseOutput]]:
-        """Asynchronous batched generate."""
+        """
+        Batched chat.
+        Returns a list of lists, each sub-list corresponds to number of outputs (n).
+        """
         if not self.clients:
             raise RuntimeError("Service not started. Call .start() first.")
         if sampling_params is None:
             sampling_params = SamplingParams()
 
         num_servers = len(self.clients)
-        total = len(prompts)
-        if total == 0:
+        if len(conversations) == 0:
             return []
 
-        base = total // num_servers
-        extras = total % num_servers
-
-        batches = []
-        start = 0
-        for i in range(num_servers):
-            size = base + (1 if i < extras else 0)
-            batches.append(prompts[start : start + size])
-            start += size
-
-        tasks = [
-            client.generate_async(batch, sampling_params, return_extra)
-            for client, batch in zip(self.clients, batches)
-        ]
-        results = await asyncio.gather(*tasks)
+        batches = self._split_batches(conversations, num_servers)
+        results: List[List] = []
+        with ThreadPoolExecutor(max_workers=num_servers) as ex:
+            futures = [ex.submit(client.chat, batch, sampling_params, return_extra) for client, batch in zip(self.clients, batches)]
+            for fut in futures:
+                results.append(fut.result())
 
         merged: List[List] = []
         for res in results:
@@ -472,8 +435,31 @@ class VLLMService:
         sampling_params: SamplingParams | None = None,
         return_extra: bool = False,
     ) -> List[List[str]] | List[List[ResponseOutput]]:
-        """Synchronous wrapper over :meth:`generate_async`."""
-        return asyncio.run(self.generate_async(prompts, sampling_params, return_extra))
+        """
+        Batched generate.
+        Returns a list of lists, each sub-list corresponds to number of outputs (n).
+        Raises if not started.
+        """
+        if not self.clients:
+            raise RuntimeError("Service not started. Call .start() first.")
+        if sampling_params is None:
+            sampling_params = SamplingParams()
+
+        num_servers = len(self.clients)
+        if len(prompts) == 0:
+            return []
+
+        batches = self._split_batches(prompts, num_servers)
+        results: List[List] = []
+        with ThreadPoolExecutor(max_workers=num_servers) as ex:
+            futures = [ex.submit(client.generate, batch, sampling_params, return_extra) for client, batch in zip(self.clients, batches)]
+            for fut in futures:
+                results.append(fut.result())
+
+        merged: List[List] = []
+        for res in results:
+            merged.extend(res)
+        return merged
 
     def shutdown(self) -> None:
         """Shut down all servers concurrently. Idempotent."""
