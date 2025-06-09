@@ -2,10 +2,11 @@ import os
 import sys
 import argparse
 import json
+import gc
+from uvicorn import Config, Server
 from typing import List, Dict, Optional, Any
 
 from fastapi import FastAPI, HTTPException, Request, Response
-import uvicorn
 import msgspec
 
 from vllm import LLM, SamplingParams
@@ -19,6 +20,10 @@ _llm_instance: Optional[LLM] = None
 
 # Optional LoRA request applied to all generation/chat calls
 _lora_request: Optional[LoRARequest] = None
+
+# ``uvicorn.Server`` instance created in ``server_main``. Used for graceful
+# shutdown from the ``/shutdown`` endpoint.
+_server: Optional[Server] = None
 
 
 class ChatRequest(msgspec.Struct, omit_defaults=True, forbid_unknown_fields=True):
@@ -96,6 +101,26 @@ async def chat_endpoint(request: Request) -> Response:
     )
 
 
+@app.post("/shutdown")
+async def shutdown_endpoint() -> Dict[str, str]:
+    """Release GPU resources and request server shutdown."""
+    global _llm_instance, _server
+    if _llm_instance is not None:
+        del _llm_instance
+        _llm_instance = None
+    gc.collect()
+    try:
+        import torch
+        torch.cuda.empty_cache()
+    except Exception:
+        pass
+
+    if _server is not None:
+        _server.should_exit = True
+
+    return {"status": "shutting_down"}
+
+
 @app.post("/generate")
 async def generate_endpoint(request: Request) -> Response:
     """
@@ -152,7 +177,7 @@ def server_main(
     1) Sets ``CUDA_VISIBLE_DEVICES`` so only the given GPUs are visible.
     2) Initializes a single :class:`vllm.LLM` with ``model_name``.
     3) If ``lora_path`` is provided, loads the LoRA adapter and enables LoRA.
-    4) Launches ``uvicorn(app)`` at ``host:port``.
+    4) Launches ``uvicorn.Server`` at ``host:port``.
     """
     os.environ["CUDA_VISIBLE_DEVICES"] = gpus
     global _llm_instance, _lora_request
@@ -166,7 +191,11 @@ def server_main(
         **extra,
     )
 
-    uvicorn.run(app, host=host, port=port, log_level="warning")
+    config = Config(app=app, host=host, port=port, log_level="warning")
+    server = Server(config)
+    global _server
+    _server = server
+    server.run()
 
 
 if __name__ == "__main__":

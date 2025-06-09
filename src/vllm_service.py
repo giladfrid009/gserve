@@ -214,7 +214,21 @@ class VLLMServer:
             return
 
         logger.info("[VLLMServer] Shutting down subprocess...")
-        self._terminate_process()
+        try:
+            requests.post(
+                f"http://{self.host}:{self.port}/shutdown", timeout=5
+            )
+        except Exception as e:
+            logger.warning("[VLLMServer] Shutdown request failed: %s", e)
+
+        try:
+            self._process.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            logger.warning(
+                "[VLLMServer] Graceful shutdown timed out; forcing kill."
+            )
+            self._terminate_process()
+
         self._process = None
 
     def _terminate_process(self) -> None:
@@ -256,6 +270,13 @@ class VLLMServer:
     def __del__(self):
         # Fallback in case shutdown wasn’t explicitly called
         self._atexit_shutdown()
+
+    def __enter__(self):
+        self.start()
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        self.shutdown()
 
 
 class VLLMService:
@@ -472,3 +493,10 @@ class VLLMService:
             self.shutdown()
         except Exception:
             pass
+
+    def __enter__(self):
+        self.start()
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        self.shutdown()
