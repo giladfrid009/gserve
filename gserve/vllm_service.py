@@ -15,6 +15,7 @@ from vllm import SamplingParams
 from gserve.vllm_client import VLLMClient
 from gserve.schema import ResponseOutput
 from gserve.configs import LLMConfig, ServeConfig
+from gserve.log_utils import LOG_LEVEL_ENV
 
 import logging
 
@@ -101,6 +102,9 @@ class VLLMServer:
         # 1) Build subprocess env: inherit but override CUDA_VISIBLE_DEVICES
         env = os.environ.copy()
         env["CUDA_VISIBLE_DEVICES"] = ",".join(str(g) for g in self.gpu_ids)
+        # Propagate logging level to the subprocess so it uses the same
+        # verbosity and formatting.
+        env[LOG_LEVEL_ENV] = os.environ.get(LOG_LEVEL_ENV, "INFO")
 
         # Ensure PYTHONPATH includes the root of this package.
         # This allows importing local modules from the script correctly.

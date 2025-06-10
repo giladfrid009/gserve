@@ -13,4 +13,6 @@ __all__ = [
 ]
 
 # Configure logging with a sensible default when the package is imported.
+# Applications may call :func:`setup_logging` again to change the level or
+# format at any time.
 setup_logging()

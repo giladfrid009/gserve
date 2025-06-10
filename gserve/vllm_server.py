@@ -9,6 +9,8 @@ import logging
 import uvicorn
 from typing import List, Dict, Optional
 
+from gserve.log_utils import LOG_LEVEL_ENV, setup_logging
+
 from gserve.schema import ChatRequest, GenerateRequest, ResponseOutput
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Request, Response
@@ -21,6 +23,7 @@ from vllm import LLM, SamplingParams
 from vllm.lora.request import LoRARequest
 from vllm.distributed.parallel_state import destroy_model_parallel, destroy_distributed_environment
 
+setup_logging()  # Configure logging based on the environment
 logger = logging.getLogger(__name__)
 
 # globals
@@ -201,7 +204,8 @@ def server_main(
 
     logger.info("LLM initialized, starting server at %s:%s", host, port)
 
-    uvicorn.run(app, host=host, port=port, log_level="warning")
+    log_level = logging.getLevelName(logging.getLogger().getEffectiveLevel()).lower()
+    uvicorn.run(app, host=host, port=port, log_level=log_level)
 
 
 if __name__ == "__main__":
