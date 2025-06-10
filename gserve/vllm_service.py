@@ -163,37 +163,69 @@ class VLLMServer:
         except Exception as e:
             raise RuntimeError(f"Failed to launch subprocess: {e!r}")
 
-        # Poll GET /health until 200 or timeout
-        health_url = f"http://{self.host}:{self.port}/health"
-        t0 = time.time()
-        while True:
-            # 1) If subprocess died, capture logs and error
-            if self._process.poll() is not None:
-                out, err = self.fetch_logs()
-                if out:
-                    logger.error("Subprocess STDOUT:\n%s", out)
-                if err:
-                    logger.error("Subprocess STDERR:\n%s", err)
-                raise RuntimeError("Subprocess terminated prematurely.")
-            # 2) Try health endpoint
-            try:
-                resp = requests.get(health_url, timeout=1.0)
-                if resp.status_code == 200:
-                    logger.info("Server is healthy at %s", health_url)
-                    break
-            except Exception:
-                pass
+        self._busywait_server_startup(
+            health_url=f"http://{self.host}:{self.port}/health",
+            probe_interval=5.0,
+            busywait_interval=1.0,
+        )
 
-            # 3) Timeout?
-            if self.startup_timeout is not None and time.time() - t0 > self.startup_timeout:
-                self._terminate_process()
-                out, err = self.fetch_logs()
-                if out:
+    def _busywait_server_startup(
+        self,
+        health_url: str,
+        probe_interval: float = 5.0,
+        busywait_interval: float = 1.0,
+    ) -> None:
+        """
+        Wait for the health endpoint to return HTTP 200.
+
+        Args:
+            health_url: The health check URL to probe
+            probe_interval: Seconds between health check attempts
+            busywait_interval: Seconds to sleep between checks to avoid busy-waiting
+
+        Raises:
+            RuntimeError: If subprocess dies or timeout is exceeded
+        """
+        start_time = time.time()
+        current_time = start_time
+        probe_time = 0
+
+        while True:
+            current_time = time.time()
+
+            # If subprocess died, capture logs and error
+            if self._process.poll() is not None:
+                out, err = self._fetch_logs()
+                logger.error("Subprocess STDOUT:\n%s", out)
+                logger.error("Subprocess STDERR:\n%s", err)
+                raise RuntimeError("Subprocess terminated prematurely.")
+
+            # Try health endpoint at probe intervals
+            if current_time - probe_time >= probe_interval:
+                probe_time = current_time
+                try:
+                    logger.debug("Probing health endpoint...")
+                    resp = requests.get(health_url, timeout=1.0)
+                    if resp.status_code == 200:
+                        logger.info("Server is healthy at %s", health_url)
+                        break
+                except (requests.ConnectionError, requests.Timeout) as e:
+                    pass # Server not ready yet
+                except:
+                    out, err = self._fetch_logs()
                     logger.error("Subprocess STDOUT:\n%s", out)
-                if err:
                     logger.error("Subprocess STDERR:\n%s", err)
+                    raise RuntimeError(f"Unexpected error during health check: {e!r}")
+
+            # Timeout check
+            if self.startup_timeout is not None and current_time - start_time > self.startup_timeout:
+                self._terminate_process()
+                out, err = self._fetch_logs()
+                logger.error("Subprocess STDOUT:\n%s", out)
+                logger.error("Subprocess STDERR:\n%s", err)
                 raise RuntimeError(f"Timeout ({self.startup_timeout}s) waiting for health check.")
-            time.sleep(0.1)
+
+            time.sleep(busywait_interval)
 
     def is_running(self) -> bool:
         """
@@ -243,7 +275,7 @@ class VLLMServer:
         finally:
             self._process = None
 
-    def fetch_logs(self) -> tuple[str, str]:
+    def _fetch_logs(self) -> tuple[str, str]:
         """Return the subprocess STDOUT/STDERR if available."""
         if self._process is None:
             return "", ""
@@ -351,7 +383,7 @@ class VLLMService:
                         started.append(srv)
                     except Exception as e:
                         logger.error("Failed to start server on %s:%s: %s", srv.host, srv.port, e)
-                        out, err = srv.fetch_logs()
+                        out, err = srv._fetch_logs()
                         if out:
                             logger.error("Subprocess STDOUT:\n%s", out)
                         if err:

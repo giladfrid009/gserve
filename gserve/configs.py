@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional
 
 @dataclass
 class LLMConfig:
-    """Configuration for the underlying vLLM model."""
+    """Configuration for the underlying :class:`vllm.LLM` model."""
 
     model_name: str
     tokenizer: Optional[str] = None
@@ -27,7 +27,7 @@ class LLMConfig:
 
 @dataclass
 class ServeConfig:
-    """Configuration for :class:`~gserve.inference.vllm_service.VLLMService`."""
+    """Configuration for :class:`gserve.inference.vllm_service.VLLMService`."""
 
     gpu_ids: List[int]
     host: str = "127.0.0.1"
