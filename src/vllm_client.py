@@ -1,12 +1,13 @@
-import asyncio
-from typing import List, Dict, Optional
-
-import httpx
-from httpx import HTTPError
+import requests
+from requests.exceptions import RequestException
 from vllm import SamplingParams
+from typing import List, Dict, Optional
 import msgspec
+import logging
 
 from src.vllm_server import ResponseOutput, ChatRequest, GenerateRequest
+
+logger = logging.getLogger(__name__)
 
 
 class VLLMClient:
@@ -21,40 +22,52 @@ class VLLMClient:
         """
         self.base_url = f"http://{host}:{port}"
         self.timeout = timeout
-        self._client = httpx.AsyncClient(base_url=self.base_url, timeout=self.timeout)
+        self.session = requests.Session()
 
-        # Basic health check using a short-lived sync request so failures don't
-        # leak open connections on ``_client``.
+        # Basic health check
         health_url = f"{self.base_url}/health"
         try:
-            resp = httpx.get(health_url, timeout=self.timeout)
+            resp = self.session.get(health_url, timeout=self.timeout)
             if resp.status_code != 200:
                 raise RuntimeError(f"Health check returned HTTP {resp.status_code}")
         except Exception as e:
-            asyncio.run(self._client.aclose())
             raise RuntimeError(f"Cannot reach vLLM server at {health_url}: {e!r}")
 
-    async def chat_async(
+    def chat(
         self,
         conversations: List[List[Dict[str, str]]],
         sampling_params: SamplingParams | None,
         return_extra: bool = False,
     ) -> List[List[str]] | List[List[ResponseOutput]]:
-        """Call the ``/chat`` endpoint asynchronously."""
-        url = f"{self.base_url}/chat"
+        """
+        Send a batched chat request to the vLLM server.
 
+        Args:
+            conversations: List of conversations, where each conversation is a list
+                of message dictionaries with "role" and "content" keys.
+            sampling_params: Optional sampling parameters for the generation.
+            return_extra: If True, return the full `ResponseOutput` objects instead
+                of just the generated text.
+
+        Returns:
+            List of lists containing generated responses. If `return_extra` is True,
+            returns a list of lists of ResponseOutput objects, otherwise just the text.
+        """
         payload = ChatRequest(
             conversations=conversations,
             params=sampling_params,
         )
 
         try:
-            response = await self._client.post(
-                url,
-                content=msgspec.json.encode(payload),
+            # ``requests.post(json=...)`` would re-encode using ``json.dumps``.
+            # Here we pre-encode with msgspec for speed and pass the raw bytes.
+            response = self.session.post(
+                url=f"{self.base_url}/chat",
+                data=msgspec.json.encode(payload),
                 headers={"Content-Type": "application/json"},
+                timeout=self.timeout,
             )
-        except HTTPError as e:
+        except RequestException as e:
             raise RuntimeError(f"Failed to POST /chat → {e!r}")
 
         if response.status_code != 200:
@@ -69,27 +82,40 @@ class VLLMClient:
             return output
         return [[o.text for o in outs] for outs in output]
 
-    async def generate_async(
+    def generate(
         self,
         prompts: List[str],
         sampling_params: SamplingParams | None,
         return_extra: bool = False,
     ) -> List[List[str]] | List[List[ResponseOutput]]:
-        """Call the ``/generate`` endpoint asynchronously."""
-        url = f"{self.base_url}/generate"
+        """
+        Send a batched generation request to the vLLM server.
 
+        Args:
+            prompts: List of prompts to generate text from.
+            sampling_params: Optional sampling parameters for the generation.
+            return_extra: If True, return the full `ResponseOutput` objects instead
+                of just the generated text.
+
+        Returns:
+            List of lists containing generated responses. If `return_extra` is True,
+            returns a list of lists of ResponseOutput objects, otherwise just the text.
+        """
         payload = GenerateRequest(
             prompts=prompts,
             params=sampling_params,
         )
 
         try:
-            response = await self._client.post(
-                url,
-                content=msgspec.json.encode(payload),
+            # Pre-encode with msgspec rather than letting ``requests`` call
+            # ``json.dumps`` internally.
+            response = self.session.post(
+                url=f"{self.base_url}/generate",
+                data=msgspec.json.encode(payload),
                 headers={"Content-Type": "application/json"},
+                timeout=self.timeout,
             )
-        except HTTPError as e:
+        except RequestException as e:
             raise RuntimeError(f"Failed to POST /generate → {e!r}")
 
         if response.status_code != 200:
@@ -104,28 +130,21 @@ class VLLMClient:
             return output
         return [[o.text for o in outs] for outs in output]
 
-    def chat(
-        self,
-        conversations: List[List[Dict[str, str]]],
-        sampling_params: SamplingParams | None,
-        return_extra: bool = False,
-    ) -> List[List[str]] | List[List[ResponseOutput]]:
-        """Synchronous wrapper over :meth:`chat_async`."""
-        return asyncio.run(self.chat_async(conversations, sampling_params, return_extra))
-
-    def generate(
-        self,
-        prompts: List[str],
-        sampling_params: SamplingParams | None,
-        return_extra: bool = False,
-    ) -> List[List[str]] | List[List[ResponseOutput]]:
-        """Synchronous wrapper over :meth:`generate_async`."""
-        return asyncio.run(self.generate_async(prompts, sampling_params, return_extra))
-
     def close(self) -> None:
-        """Synchronous wrapper over :meth:`aclose`."""
-        asyncio.run(self.aclose())
+        """Close the underlying HTTP session. Never raises."""
+        if self.session is None:
+            return
+        try:
+            self.session.close()
+            self.session = None
+        except:
+            logger.warning("[VLLMClient] Failed to close session", exc_info=True)
 
-    async def aclose(self) -> None:
-        """Close the underlying asynchronous HTTP client."""
-        await self._client.aclose()
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.close()
+
+    def __del__(self):
+        self.close()
