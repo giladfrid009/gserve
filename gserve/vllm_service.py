@@ -192,9 +192,7 @@ class VLLMServer:
                     logger.error("Subprocess STDOUT:\n%s", out)
                 if err:
                     logger.error("Subprocess STDERR:\n%s", err)
-                raise RuntimeError(
-                    f"Timeout ({self.startup_timeout}s) waiting for health check."
-                )
+                raise RuntimeError(f"Timeout ({self.startup_timeout}s) waiting for health check.")
             time.sleep(0.1)
 
     def is_running(self) -> bool:
@@ -352,9 +350,7 @@ class VLLMService:
                         fut.result()
                         started.append(srv)
                     except Exception as e:
-                        logger.error(
-                            "Failed to start server on %s:%s: %s", srv.host, srv.port, e
-                        )
+                        logger.error("Failed to start server on %s:%s: %s", srv.host, srv.port, e)
                         out, err = srv.fetch_logs()
                         if out:
                             logger.error("Subprocess STDOUT:\n%s", out)

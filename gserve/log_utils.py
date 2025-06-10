@@ -21,14 +21,17 @@ def setup_logging(level: int | None = None) -> None:
     also stored in :data:`LOG_LEVEL_ENV` so subprocesses started by the library
     inherit the same verbosity.
     """
+    default_level = logging.INFO
 
     if level is None:
         # If caller didn't specify a level, try the environment variable.
-        env_level = os.environ.get(LOG_LEVEL_ENV)
-        if env_level:
-            level = getattr(logging, env_level.upper(), logging.INFO)
-        else:
-            level = logging.INFO
+        env_level = os.environ.get(LOG_LEVEL_ENV, default=logging.getLevelName(default_level))
+        level = getattr(logging, env_level.upper(), None)
+
+        # warning if env_level is not a valid logging level
+        if level is None:
+            level = default_level
+            logging.warning(f"Invalid log level '{env_level}' specified in {LOG_LEVEL_ENV}. Defaulting to INFO.")
 
     root = logging.getLogger()
     root.setLevel(level)
@@ -46,4 +49,3 @@ def setup_logging(level: int | None = None) -> None:
             handler.setLevel(level)
 
     os.environ[LOG_LEVEL_ENV] = logging.getLevelName(level)
-

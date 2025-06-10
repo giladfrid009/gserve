@@ -64,11 +64,7 @@ Remember to call the async APIs directly if running inside another event loop.
 ### Logging
 
 `gserve` installs a default logging configuration on import if the
-application has not set one.  Log entries follow the pattern:
-
-```
-INFO 06-10 15:23:31 [config.py:2118] Chunked prefill is enabled with max_num_batched_tokens=8192.
-```
+application has not set one.
 
 Call `gserve.setup_logging(level=logging.DEBUG)` to change the log level or
 format at any time.  The chosen level is propagated to any subprocesses spawned

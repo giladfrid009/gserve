@@ -193,9 +193,7 @@ def server_main(
         _lora_request = LoRARequest("lora_adapter", 1, lora_path=lora_path)
         extra.setdefault("enable_lora", True)
 
-    logger.info(
-        "Initializing LLM '%s' on GPUs %s", model_name, gpus
-    )
+    logger.info("Initializing LLM '%s' on GPUs %s", model_name, gpus)
 
     _llm_instance = LLM(
         model=model_name,
