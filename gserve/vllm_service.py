@@ -1,20 +1,20 @@
 import os
+import pathlib
 import sys
 import socket
 import time
 import subprocess
 import atexit
 import json
-import asyncio
 from typing import Dict, List, Optional, TypeVar, Sequence
 from concurrent.futures import ThreadPoolExecutor
 
 import requests
 from vllm import SamplingParams
 
-from src.vllm_client import VLLMClient
-from src.vllm_server import ResponseOutput
-from src.configs import LLMConfig, ServeConfig
+from gserve.vllm_client import VLLMClient
+from gserve.schema import ResponseOutput
+from gserve.configs import LLMConfig, ServeConfig
 
 import logging
 
@@ -47,7 +47,6 @@ class VLLMServer:
         host: str = "127.0.0.1",
         port: Optional[int] = None,
         startup_timeout: Optional[float] = 15.0,
-        server_script_path: Optional[str] = None,
         verbose: bool = False,
     ):
         """
@@ -58,7 +57,6 @@ class VLLMServer:
             port: If None, auto-pick a free port; otherwise bind exactly to this port.
             startup_timeout: Seconds to wait for GET /health to return 200.
                 ``None`` disables the timeout.
-            server_script_path: Path to vllm_server.py. If None, assume same directory.
             verbose: If True, forward stdout/stderr from the server subprocess
                 to the parent process.
         """
@@ -73,16 +71,6 @@ class VLLMServer:
             self.port = self._find_free_port()
         else:
             self.port = port
-
-        # Locate vllm_server.py
-        if server_script_path is None:
-            this_dir = os.path.dirname(os.path.realpath(__file__))
-            self.server_script = os.path.join(this_dir, "vllm_server.py")
-        else:
-            self.server_script = server_script_path
-
-        if not os.path.isfile(self.server_script):
-            raise FileNotFoundError(f"Cannot find server script at: {self.server_script}")
 
         self._process: Optional[subprocess.Popen] = None
 
@@ -101,7 +89,7 @@ class VLLMServer:
     def start(self) -> None:
         """
         Launch a subprocess:
-            python vllm_server.py --serve --model <model_name>
+            python gserve/vllm_server.py --serve --model <model_name>
                 --host <host> --port <port> --gpus <comma-joined gpu_ids>
                 --llm_kwargs <json-encoded dict of additional args>
 
@@ -114,10 +102,16 @@ class VLLMServer:
         env = os.environ.copy()
         env["CUDA_VISIBLE_DEVICES"] = ",".join(str(g) for g in self.gpu_ids)
 
+        # Ensure PYTHONPATH includes the root of this package.
+        # This allows importing local modules from the script correctly.
+        root_path = str(pathlib.Path(__file__).resolve().parent.parent.absolute())
+        script_path = str(pathlib.Path(root_path, "gserve", "vllm_server.py").absolute())
+        env["PYTHONPATH"] = root_path + ((":" + env["PYTHONPATH"]) if "PYTHONPATH" in env else "")
+
         # 2) Build the command
         cmd = [
             sys.executable,
-            self.server_script,
+            script_path,
             "--serve",
             "--model",
             self.llm_config.model_name,
@@ -337,7 +331,6 @@ class VLLMService:
                 host=self._serve_config.host,
                 port=port_counter,
                 startup_timeout=self._serve_config.startup_timeout,
-                server_script_path=self._serve_config.server_script_path,
                 verbose=self._serve_config.verbose,
             )
             servers.append(srv)
@@ -442,7 +435,7 @@ class VLLMService:
         """Shut down all servers and close clients. Idempotent. Never raises."""
         servers = self.servers[:]
         clients = self.clients[:]
-        
+
         self.servers.clear()
         self.clients.clear()
 

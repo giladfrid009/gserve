@@ -27,13 +27,11 @@ class LLMConfig:
 
 @dataclass
 class ServeConfig:
-    """Configuration for :class:`~src.inference.vllm_service.VLLMService`."""
+    """Configuration for :class:`~gserve.inference.vllm_service.VLLMService`."""
 
     gpu_ids: List[int]
     host: str = "127.0.0.1"
     port: Optional[int] = None
-    # ``None`` disables the timeout completely
     startup_timeout: Optional[float] = 180.0
     client_timeout: Optional[float] = 30.0
-    server_script_path: Optional[str] = None
     verbose: bool = False

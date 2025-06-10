@@ -16,13 +16,14 @@ This design allows the library to be used with regular blocking code while still
 ## Repository layout
 
 ```
-src/
+gserve/
     configs.py       Dataclasses describing model and service configuration.
     vllm_server.py   FastAPI server exposing `/health`, `/chat`, `/generate` and `/shutdown` endpoints.
     vllm_client.py   Lightweight HTTP client for the server.
     vllm_service.py  Helper that manages server subprocesses and clients to provide batched chat/generate.
 notebooks/
     test_vllm_service.ipynb  Example notebook using `VLLMService`.
+tests/
 ```
 
 ### `configs.py`
@@ -42,8 +43,8 @@ A higher level wrapper that starts one or more server subprocesses (one GPU each
 ## Usage example
 
 ```python
-from src.configs import LLMConfig, ServeConfig
-from src.vllm_service import VLLMService
+from gserve.configs import LLMConfig, ServeConfig
+from gserve.vllm_service import VLLMService
 
 llm_cfg = LLMConfig(model_name="meta-llama/Llama-3.2-1b-Instruct")
 serve_cfg = ServeConfig(gpu_ids=[0])

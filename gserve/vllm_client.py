@@ -5,7 +5,7 @@ from typing import List, Dict, Optional
 import msgspec
 import logging
 
-from src.vllm_server import ResponseOutput, ChatRequest, GenerateRequest
+from gserve.schema import ChatRequest, GenerateRequest, ResponseOutput
 
 logger = logging.getLogger(__name__)
 
