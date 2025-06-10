@@ -61,6 +61,18 @@ service.shutdown()
 
 Remember to call the async APIs directly if running inside another event loop.
 
+### Logging
+
+`gserve` installs a default logging configuration on import if the
+application has not set one.  Messages follow the pattern:
+
+```
+INFO 06-10 15:23:31 [config.py:2118] Chunked prefill is enabled with max_num_batched_tokens=8192.
+```
+
+Use `gserve.setup_logging(level=logging.DEBUG)` to override the log level or
+format before starting the service.
+
 ## Installation
 
 The project requires Python 3.12+.  Install dependencies with [`uv`](https://github.com/astral-sh/uv) or `pip`:

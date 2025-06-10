@@ -363,6 +363,11 @@ class VLLMService:
                 self.clients.append(client)
 
             self.servers = started
+            logger.info(
+                "[VLLMService] Started %d server(s) listening on %s", 
+                len(self.servers), 
+                ", ".join(f"{srv.host}:{srv.port}" for srv in self.servers),
+            )
         except Exception:
             for srv in started:
                 srv.shutdown()
@@ -438,6 +443,11 @@ class VLLMService:
 
         self.servers.clear()
         self.clients.clear()
+
+        if not servers and not clients:
+            return
+
+        logger.info("[VLLMService] Shutting down %d server(s)...", len(servers))
 
         for client in clients:
             client.close()

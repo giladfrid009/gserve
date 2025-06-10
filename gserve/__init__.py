@@ -1,3 +1,16 @@
-from gserve.configs import LLMConfig, ServeConfig
-from gserve.vllm_client import VLLMClient
-from gserve.vllm_service import VLLMServer, VLLMService
+from .configs import LLMConfig, ServeConfig
+from .vllm_client import VLLMClient
+from .vllm_service import VLLMServer, VLLMService
+from .logging import setup_logging
+
+__all__ = [
+    "LLMConfig",
+    "ServeConfig",
+    "VLLMClient",
+    "VLLMServer",
+    "VLLMService",
+    "setup_logging",
+]
+
+# Configure logging with a sensible default when the package is imported.
+setup_logging()
