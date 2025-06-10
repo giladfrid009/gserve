@@ -53,10 +53,10 @@ async def release_resources(app: FastAPI):
             torch.cuda.empty_cache()
             ray.shutdown()
 
-            logger.info("[VLLM Server] Resources released successfully.")
+            logger.info("Resources released successfully.")
 
         except Exception as e:
-            logger.exception("[VLLM Server] Error during cleanup: %s", e)
+            logger.exception("Error during cleanup: %s", e)
 
 
 app = FastAPI(title="vLLM Batched-Chat & Generate Server", lifespan=release_resources)
@@ -82,6 +82,7 @@ async def chat_endpoint(request: Request) -> Response:
     data = await request.body()
     try:
         req = msgspec.json.decode(data, type=ChatRequest)
+        logger.debug("/chat with %d conversation(s)", len(req.conversations))
     except msgspec.DecodeError as e:
         raise HTTPException(status_code=400, detail=f"Invalid request: {e}")
 
@@ -124,6 +125,7 @@ async def generate_endpoint(request: Request) -> Response:
     data = await request.body()
     try:
         req = msgspec.json.decode(data, type=GenerateRequest)
+        logger.debug("/generate with %d prompt(s)", len(req.prompts))
     except msgspec.DecodeError as e:
         raise HTTPException(status_code=400, detail=f"Invalid request: {e}")
 
@@ -188,10 +190,16 @@ def server_main(
         _lora_request = LoRARequest("lora_adapter", 1, lora_path=lora_path)
         extra.setdefault("enable_lora", True)
 
+    logger.info(
+        "Initializing LLM '%s' on GPUs %s", model_name, gpus
+    )
+
     _llm_instance = LLM(
         model=model_name,
         **extra,
     )
+
+    logger.info("LLM initialized, starting server at %s:%s", host, port)
 
     uvicorn.run(app, host=host, port=port, log_level="warning")
 

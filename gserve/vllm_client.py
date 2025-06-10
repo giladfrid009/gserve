@@ -137,8 +137,8 @@ class VLLMClient:
         try:
             self.session.close()
             self.session = None
-        except:
-            logger.warning("[VLLMClient] Failed to close session", exc_info=True)
+        except Exception:
+            logger.warning("Failed to close session", exc_info=True)
 
     def __enter__(self):
         return self

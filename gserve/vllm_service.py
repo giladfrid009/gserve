@@ -146,7 +146,7 @@ class VLLMServer:
         if self.llm_config.lora_path is not None:
             cmd.extend(["--lora_path", self.llm_config.lora_path])
 
-        logger.info(f"[VLLMServer] Launching subprocess:\n    {' '.join(cmd)}")
+        logger.info("Launching subprocess:\n    %s", " ".join(cmd))
 
         try:
             self._process = subprocess.Popen(
@@ -157,7 +157,7 @@ class VLLMServer:
                 text=True,
             )
         except Exception as e:
-            raise RuntimeError(f"[VLLMServer] Failed to launch subprocess: {e!r}")
+            raise RuntimeError(f"Failed to launch subprocess: {e!r}")
 
         # Poll GET /health until 200 or timeout
         health_url = f"http://{self.host}:{self.port}/health"
@@ -167,15 +167,15 @@ class VLLMServer:
             if self._process.poll() is not None:
                 out, err = self.fetch_logs()
                 if out:
-                    logger.error("[VLLMServer STDOUT]\n%s", out)
+                    logger.error("Subprocess STDOUT:\n%s", out)
                 if err:
-                    logger.error("[VLLMServer STDERR]\n%s", err)
-                raise RuntimeError("[VLLMServer] Subprocess terminated prematurely.")
+                    logger.error("Subprocess STDERR:\n%s", err)
+                raise RuntimeError("Subprocess terminated prematurely.")
             # 2) Try health endpoint
             try:
                 resp = requests.get(health_url, timeout=1.0)
                 if resp.status_code == 200:
-                    logger.info(f"[VLLMServer] Server is healthy at {health_url}")
+                    logger.info("Server is healthy at %s", health_url)
                     break
             except Exception:
                 pass
@@ -185,10 +185,12 @@ class VLLMServer:
                 self._terminate_process()
                 out, err = self.fetch_logs()
                 if out:
-                    logger.error("[VLLMServer STDOUT]\n%s", out)
+                    logger.error("Subprocess STDOUT:\n%s", out)
                 if err:
-                    logger.error("[VLLMServer STDERR]\n%s", err)
-                raise RuntimeError(f"[VLLMServer] Timeout ({self.startup_timeout}s) waiting for health check.")
+                    logger.error("Subprocess STDERR:\n%s", err)
+                raise RuntimeError(
+                    f"Timeout ({self.startup_timeout}s) waiting for health check."
+                )
             time.sleep(0.1)
 
     def is_running(self) -> bool:
@@ -202,18 +204,18 @@ class VLLMServer:
         if self._process is None:
             return
 
-        logger.info("[VLLMServer] Shutting down subprocess...")
+        logger.info("Shutting down subprocess...")
         try:
             resp = requests.post(f"http://{self.host}:{self.port}/shutdown", timeout=5)
             if resp.status_code != 200:
-                logger.warning("[VLLMServer] Shutdown request returned HTTP %s", resp.status_code)
+                logger.warning("Shutdown request returned HTTP %s", resp.status_code)
         except requests.RequestException as e:
-            logger.warning("[VLLMServer] Shutdown request failed: %s", e)
+            logger.warning("Shutdown request failed: %s", e)
 
         try:
             self._process.wait(timeout=10)
         except subprocess.TimeoutExpired:
-            logger.warning("[VLLMServer] Graceful shutdown timed out; forcing kill.")
+            logger.warning("Graceful shutdown timed out; forcing kill.")
             self._terminate_process()
         finally:
             self._process = None
@@ -231,11 +233,11 @@ class VLLMServer:
             try:
                 self._process.wait(timeout=5)
             except subprocess.TimeoutExpired:
-                logger.warning("[VLLMServer] Did not exit after SIGTERM; forcing kill.")
+                logger.warning("Did not exit after SIGTERM; forcing kill.")
                 self._process.kill()
                 self._process.wait(timeout=5)
         except Exception as e:
-            logger.error(f"[VLLMServer] Error terminating subprocess: {e!r}")
+            logger.error(f"Error terminating subprocess: {e!r}")
         finally:
             self._process = None
 
@@ -346,12 +348,14 @@ class VLLMService:
                         fut.result()
                         started.append(srv)
                     except Exception as e:
-                        logger.error("[VLLMService] Failed to start server on %s:%s: %s", srv.host, srv.port, e)
+                        logger.error(
+                            "Failed to start server on %s:%s: %s", srv.host, srv.port, e
+                        )
                         out, err = srv.fetch_logs()
                         if out:
-                            logger.error("[VLLMServer STDOUT]\n%s", out)
+                            logger.error("Subprocess STDOUT:\n%s", out)
                         if err:
-                            logger.error("[VLLMServer STDERR]\n%s", err)
+                            logger.error("Subprocess STDERR:\n%s", err)
                         raise
 
             for srv in started:
@@ -364,8 +368,8 @@ class VLLMService:
 
             self.servers = started
             logger.info(
-                "[VLLMService] Started %d server(s) listening on %s", 
-                len(self.servers), 
+                "Started %d server(s) listening on %s",
+                len(self.servers),
                 ", ".join(f"{srv.host}:{srv.port}" for srv in self.servers),
             )
         except Exception:
@@ -447,7 +451,7 @@ class VLLMService:
         if not servers and not clients:
             return
 
-        logger.info("[VLLMService] Shutting down %d server(s)...", len(servers))
+        logger.info("Shutting down %d server(s)...", len(servers))
 
         for client in clients:
             client.close()
