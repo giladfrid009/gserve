@@ -97,7 +97,7 @@ with service:
 
     # 4. Send requests
     # Chat completions
-    chat_responses = service.chat(conversations, sampling_params=sampling_params)
+    chat_responses = service.chat(conversations, sampling_params)
     for i, response_list in enumerate(chat_responses):
         print(f"Chat Response for conversation {i+1}:")
         for output in response_list:
@@ -105,7 +105,7 @@ with service:
 
     # Text generation
     # To get full ResponseOutput (including logprobs if enabled in SamplingParams)
-    generate_responses_extra = service.generate(prompts, sampling_params=sampling_params, return_extra=True)
+    generate_responses_extra = service.generate(prompts, sampling_params, return_extra=True)
     for i, response_list in enumerate(generate_responses_extra):
         print(f"Generation Response for prompt {i+1}:")
         for output_obj in response_list:
