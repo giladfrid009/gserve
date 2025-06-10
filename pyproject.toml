@@ -1,7 +1,11 @@
+[tool.setuptools.packages.find]
+include = ["gserve*"]
+exclude = ["notebooks*", "tests*"]
+
 [project]
 name = "gserve"
 version = "0.1.0"
-description = "Add your description here"
+description = "Simple vLLM batch serving for LLMs with FastAPI"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
