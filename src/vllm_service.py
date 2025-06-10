@@ -197,10 +197,6 @@ class VLLMServer:
                 raise RuntimeError(f"[VLLMServer] Timeout ({self.startup_timeout}s) waiting for health check.")
             time.sleep(0.1)
 
-    async def start_async(self) -> None:
-        """Asynchronously invoke :meth:`start` using a worker thread."""
-        await asyncio.to_thread(self.start)
-
     def is_running(self) -> bool:
         """
         Return True if the subprocess exists and is still alive.
@@ -233,10 +229,6 @@ class VLLMServer:
             self._terminate_process()
 
         self._process = None
-
-    async def shutdown_async(self) -> None:
-        """Asynchronously invoke :meth:`shutdown` using a worker thread."""
-        await asyncio.to_thread(self.shutdown)
 
     def _terminate_process(self) -> None:
         """
@@ -363,10 +355,8 @@ class VLLMService:
             if port_counter is not None:
                 port_counter += 1
 
-        results = await asyncio.gather(
-            *(srv.start_async() for srv in servers),
-            return_exceptions=True,
-        )
+        server_tasks = (asyncio.to_thread(srv.start) for srv in servers)
+        results = await asyncio.gather(*server_tasks, return_exceptions=True)
 
         started: List[VLLMServer] = []
         for srv, res in zip(servers, results):
@@ -386,10 +376,8 @@ class VLLMService:
                 started.append(srv)
 
         if len(started) != len(servers):
-            await asyncio.gather(
-                *(srv.shutdown_async() for srv in started),
-                return_exceptions=True,
-            )
+            server_tasks = (asyncio.to_thread(srv.shutdown) for srv in started)
+            await asyncio.gather(*server_tasks, return_exceptions=True)
             raise RuntimeError("Failed to start all servers")
 
         for srv in started:
