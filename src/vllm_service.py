@@ -431,9 +431,6 @@ class VLLMService:
         if not self.clients:
             raise RuntimeError("Service not started. Call .start() first.")
 
-        if sampling_params is None:
-            sampling_params = SamplingParams()
-
         if len(conversations) == 0:
             return []
 
@@ -472,9 +469,6 @@ class VLLMService:
         """Perform batched generation across all servers asynchronously."""
         if not self.clients:
             raise RuntimeError("Service not started. Call .start() first.")
-
-        if sampling_params is None:
-            sampling_params = SamplingParams()
 
         if len(prompts) == 0:
             return []

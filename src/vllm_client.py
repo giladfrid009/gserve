@@ -37,7 +37,7 @@ class VLLMClient:
     async def chat_async(
         self,
         conversations: List[List[Dict[str, str]]],
-        sampling_params: SamplingParams,
+        sampling_params: SamplingParams | None,
         return_extra: bool = False,
     ) -> List[List[str]] | List[List[ResponseOutput]]:
         """Call the ``/chat`` endpoint asynchronously."""
@@ -72,7 +72,7 @@ class VLLMClient:
     async def generate_async(
         self,
         prompts: List[str],
-        sampling_params: SamplingParams,
+        sampling_params: SamplingParams | None,
         return_extra: bool = False,
     ) -> List[List[str]] | List[List[ResponseOutput]]:
         """Call the ``/generate`` endpoint asynchronously."""
@@ -107,7 +107,7 @@ class VLLMClient:
     def chat(
         self,
         conversations: List[List[Dict[str, str]]],
-        sampling_params: SamplingParams,
+        sampling_params: SamplingParams | None,
         return_extra: bool = False,
     ) -> List[List[str]] | List[List[ResponseOutput]]:
         """Synchronous wrapper over :meth:`chat_async`."""
@@ -116,7 +116,7 @@ class VLLMClient:
     def generate(
         self,
         prompts: List[str],
-        sampling_params: SamplingParams,
+        sampling_params: SamplingParams | None,
         return_extra: bool = False,
     ) -> List[List[str]] | List[List[ResponseOutput]]:
         """Synchronous wrapper over :meth:`generate_async`."""

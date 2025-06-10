@@ -34,24 +34,24 @@ _llm_instance: Optional[LLM] = None
 _lora_request: Optional[LoRARequest] = None
 
 
-class ChatRequest(msgspec.Struct, omit_defaults=True, forbid_unknown_fields=True):
+class ChatRequest(msgspec.Struct, array_like=True, omit_defaults=True, forbid_unknown_fields=True):
     """Payload for batched chat requests."""
 
     conversations: List[List[Dict[str, Any]]]
-    params: SamplingParams
+    params: Optional[SamplingParams] = None
 
 
-class GenerateRequest(msgspec.Struct, omit_defaults=True, forbid_unknown_fields=True):
+class GenerateRequest(msgspec.Struct, array_like=True, omit_defaults=True, forbid_unknown_fields=True):
     """
     JSON schema for batched generation (text completion) requests.
     - prompts: list of N prompt strings.
     """
 
     prompts: List[str]
-    params: SamplingParams
+    params: Optional[SamplingParams] = None
 
 
-class ResponseOutput(msgspec.Struct, omit_defaults=True, forbid_unknown_fields=True):
+class ResponseOutput(msgspec.Struct, array_like=True, omit_defaults=True, forbid_unknown_fields=True):
     """Single generation response from vLLM."""
 
     text: str
@@ -80,12 +80,11 @@ async def chat_endpoint(request: Request) -> Response:
         req = msgspec.json.decode(data, type=ChatRequest)
     except msgspec.DecodeError as e:
         raise HTTPException(status_code=400, detail=f"Invalid request: {e}")
-    sampling_params = req.params
 
     try:
         req_outputs = _llm_instance.chat(
             req.conversations,
-            sampling_params=sampling_params,
+            sampling_params=req.params,
             lora_request=_lora_request,
             add_generation_prompt=True,
             continue_final_message=False,
@@ -153,12 +152,11 @@ async def generate_endpoint(request: Request) -> Response:
         req = msgspec.json.decode(data, type=GenerateRequest)
     except msgspec.DecodeError as e:
         raise HTTPException(status_code=400, detail=f"Invalid request: {e}")
-    sampling_params = req.params
 
     try:
         req_outputs = _llm_instance.generate(
             req.prompts,
-            sampling_params=sampling_params,
+            sampling_params=req.params,
             lora_request=_lora_request,
             use_tqdm=False,
         )
