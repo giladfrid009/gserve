@@ -1,7 +1,7 @@
 from .configs import LLMConfig, ServeConfig
 from .vllm_client import VLLMClient
 from .vllm_service import VLLMServer, VLLMService
-from .logging import setup_logging
+from .logutil import setup_logging
 
 __all__ = [
     "LLMConfig",
