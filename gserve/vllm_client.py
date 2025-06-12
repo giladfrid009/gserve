@@ -1,7 +1,7 @@
 import requests
 from requests.exceptions import RequestException
 from vllm import SamplingParams
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Literal, overload
 import msgspec
 import logging
 
@@ -32,6 +32,22 @@ class VLLMClient:
                 raise RuntimeError(f"Health check returned HTTP {resp.status_code}")
         except Exception as e:
             raise RuntimeError(f"Cannot reach vLLM server at {health_url}: {e!r}")
+
+    @overload
+    def chat(
+        self,
+        conversations: List[List[Dict[str, str]]],
+        sampling_params: SamplingParams | None,
+        return_extra: Literal[False],
+    ) -> List[List[str]]: ...
+
+    @overload
+    def chat(
+        self,
+        conversations: List[List[Dict[str, str]]],
+        sampling_params: SamplingParams | None,
+        return_extra: Literal[True],
+    ) -> List[List[ResponseOutput]]: ...
 
     def chat(
         self,
@@ -81,6 +97,22 @@ class VLLMClient:
         if return_extra:
             return output
         return [[o.text for o in outs] for outs in output]
+
+    @overload
+    def generate(
+        self,
+        prompts: List[str],
+        sampling_params: SamplingParams | None,
+        return_extra: Literal[False],
+    ) -> List[List[str]]: ...
+
+    @overload
+    def generate(
+        self,
+        prompts: List[str],
+        sampling_params: SamplingParams | None,
+        return_extra: Literal[True],
+    ) -> List[List[ResponseOutput]]: ...
 
     def generate(
         self,

@@ -6,7 +6,7 @@ import time
 import subprocess
 import atexit
 import json
-from typing import Dict, List, Optional, TypeVar, Sequence
+from typing import Dict, List, Optional, TypeVar, Sequence, Literal, overload
 from concurrent.futures import ThreadPoolExecutor
 
 import requests
@@ -211,7 +211,7 @@ class VLLMServer:
                         break
                 except (requests.ConnectionError, requests.Timeout) as e:
                     pass # Server not ready yet
-                except:
+                except Exception as e:
                     out, err = self._fetch_logs()
                     logger.error("Subprocess STDOUT:\n%s", out)
                     logger.error("Subprocess STDERR:\n%s", err)
@@ -415,6 +415,22 @@ class VLLMService:
         """Return True if at least one server subprocess is still alive."""
         return any(server.is_running() for server in self.servers)
 
+    @overload
+    def chat(
+        self,
+        conversations: List[List[Dict[str, str]]],
+        sampling_params: SamplingParams | None,
+        return_extra: Literal[False],
+    ) -> List[List[str]]: ...
+    
+    @overload
+    def chat(
+        self,
+        conversations: List[List[Dict[str, str]]],
+        sampling_params: SamplingParams | None,
+        return_extra: Literal[True],
+    ) -> List[List[ResponseOutput]]: ...
+
     def chat(
         self,
         conversations: List[List[Dict[str, str]]],
@@ -442,6 +458,22 @@ class VLLMService:
         for res in results:
             merged.extend(res)
         return merged
+
+    @overload
+    def generate(
+        self,
+        prompts: List[str],
+        sampling_params: SamplingParams | None,
+        return_extra: Literal[False],
+    ) -> List[List[str]]: ...
+    
+    @overload
+    def generate(
+        self,
+        prompts: List[str],
+        sampling_params: SamplingParams | None,
+        return_extra: Literal[True],
+    ) -> List[List[ResponseOutput]]: ...
 
     def generate(
         self,
