@@ -422,6 +422,13 @@ class VLLMService:
         sampling_params: SamplingParams | None,
         return_extra: Literal[False],
     ) -> List[List[str]]: ...
+
+    @overload
+    def chat(
+        self,
+        conversations: List[List[Dict[str, str]]],
+        sampling_params: SamplingParams | None,
+    ) -> List[List[str]]: ...
     
     @overload
     def chat(
@@ -465,6 +472,13 @@ class VLLMService:
         prompts: List[str],
         sampling_params: SamplingParams | None,
         return_extra: Literal[False],
+    ) -> List[List[str]]: ...
+
+    @overload
+    def generate(
+        self,
+        prompts: List[str],
+        sampling_params: SamplingParams | None,
     ) -> List[List[str]]: ...
     
     @overload
